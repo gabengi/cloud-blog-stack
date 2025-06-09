@@ -127,26 +127,25 @@ Once `docker compose up` finishes and all services are running:
     * **Database:** `db3t`
 
 ## 📂 Project Structure
-
 .
-├── backend/                  # Node.js/Express backend API
-│   ├── src/                  # Backend source code
-│   ├── package.json          # Node.js dependencies and scripts
-│   ├── Dockerfile.dev        # Dockerfile for backend development
-│   └── .env                  # Backend environment variables
-├── frontend/                 # React/Vite frontend application
-│   ├── src/                  # Frontend source code
-│   ├── public/               # Static assets
-│   ├── package.json          # Node.js dependencies and scripts
-│   ├── vite.config.js        # Vite configuration (for hot-reloading)
-│   └── Dockerfile.dev        # Dockerfile for frontend development
-├── db-init-scripts/          # SQL scripts for initial database setup
-│   ├── 01-schema.sql         # Example: database schema creation
-│   └── 02-seed-data.sql      # Example: initial data population
-├── docker-compose.yml        # Defines and links all services
-├── .env                      # Root environment variables for Docker Compose
-├── .gitignore                # Specifies intentionally untracked files to ignore
-└── README.md                 # This file!
+├── backend/                    # Node.js/Express backend API
+│   ├── src/                   # Backend source code
+│   ├── package.json           # Node.js dependencies and scripts
+│   ├── Dockerfile.dev         # Dockerfile for backend development
+│   └── .env                   # Backend environment variables
+├── frontend/                   # React/Vite frontend application
+│   ├── src/                   # Frontend source code
+│   ├── public/                # Static assets
+│   ├── package.json           # Node.js dependencies and scripts
+│   ├── vite.config.js         # Vite configuration (for hot-reloading)
+│   └── Dockerfile.dev         # Dockerfile for frontend development
+├── db-init-scripts/           # SQL scripts for initial database setup
+│   ├── 01-schema.sql          # Example: database schema creation
+│   └── 02-seed-data.sql       # Example: initial data population
+├── docker-compose.yml         # Defines and links all services
+├── .env                       # Root environment variables for Docker Compose
+├── .gitignore                 # Specifies intentionally untracked files to ignore
+└── README.md                  # This file!
 
 
 ## 💡 Future Enhancements
