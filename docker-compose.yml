@@ -1,0 +1,85 @@
+# Removed: version: '3.8' - it's obsolete and can be removed.
+
+services:
+  # --- Database Service ---
+  db:
+    image: postgres:17-alpine # Use a lightweight PostgreSQL image
+    container_name: postgres_db # A custom name for your container (optional)
+    ports:
+      # Map host port 5432 to container's internal port 5432.
+      # This allows you to connect with local tools like DBeaver.
+      # IMPORTANT: Your backend connects to 'db:5432', NOT 'localhost:5432'
+      - "5432:5432"
+    environment:
+      # These environment variables are used by the official Postgres Docker image
+      # to configure the database. Your backend will use these values.
+      POSTGRES_DB: ${POSTGRES_DB}          # <-- Reference from .env
+      POSTGRES_USER: ${POSTGRES_USER}      # <-- Reference from .env
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} # <-- Reference from .env
+    volumes:
+      # Persist database data to a named volume.
+      # Data won't be lost if the container is removed or restarted.
+      - db_data:/var/lib/postgresql/data
+      # Mount your initial SQL scripts.
+      # These run automatically when the container starts for the FIRST time.
+      - ./db-init-scripts:/docker-entrypoint-initdb.d
+    # Optional: restart the DB container if it stops
+    restart: unless-stopped
+
+  # --- Backend Service (Node.js/Express) ---
+  backend:
+    build:
+      context: ./backend # Tells Docker Compose to look for the Dockerfile in the './backend' directory
+      dockerfile: Dockerfile.dev # Use our specific dev Dockerfile
+    container_name: my_backend_app # A custom name for your container (optional)
+    ports:
+      # Map host port 3001 to container's internal port 3001.
+      # This allows you to access your backend API from your host (e.g., Postman).
+      - "3001:3001"
+    environment:
+      # Pass database connection details to your backend.
+      # Use the service name 'db' as the hostname for inter-container communication.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER} # Pass these through if your backend uses them directly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DB_HOST: db # Explicitly define DB_HOST if your backend uses it
+      DB_PORT: 5432
+      # Add any other environment variables your backend needs
+    volumes:
+      # Mount your local backend code into the container.
+      # This allows hot-reloading tools (like nodemon) to see changes.
+      - ./backend:/app
+      # This is CRUCIAL for Node.js projects with mounted volumes.
+      # It ensures node_modules inside the container aren't overwritten by local ones,
+      # and prevents issues where local OS might not match container's OS for native modules.
+      - /app/node_modules
+    # Ensure DB starts before backend attempts to connect
+    depends_on:
+      - db
+    restart: unless-stopped
+
+# --- Frontend Service (React/Vue/Angular) ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: my_frontend_app
+    ports:
+      - "3000:5173"
+    environment:
+      # CRITICAL CHANGE: Use 'localhost' here, as the browser (on your host)
+      # will be making this request, not the container itself.
+      VITE_APP_API_BASE_URL: http://localhost:3001/api # <-- CHANGE THIS LINE
+      NPM_CONFIG_UNSAFE_PERM: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    user: root
+    depends_on:
+      - backend
+    restart: unless-stopped
+    
+# --- Docker Volumes for Data Persistence ---
+volumes:
+  db_data: # This creates a Docker managed volume for your PostgreSQL data

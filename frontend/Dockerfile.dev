@@ -1,0 +1,22 @@
+# Use a lightweight Node.js base image
+FROM node:20-alpine
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy package.json and package-lock.json
+COPY package.json package-lock.json ./
+
+# Install project dependencies
+RUN npm install
+
+# Expose the port your frontend development server listens on (e.g., 3000 for React)
+EXPOSE 3000
+
+# Best practice: Run the application as a non-root user
+USER node
+
+# The command to run the development server.
+# This usually hot-reloads on file changes thanks to tools like Webpack Dev Server (for React)
+# or Vite (for Vue/React/Svelte), etc.
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

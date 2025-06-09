@@ -1,0 +1,28 @@
+# Git
+.git/
+
+# Node modules
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Environment variables
+.env
+backend/.env
+frontend/.env
+
+# Build outputs
+build/
+dist/
+frontend/dist/
+
+# Docker volumes and logs
+.docker/
+db_data/ # If you store db data directly in the project (less common with named volumes)
+*.log
+log/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+.vscode/ # VS Code settings, optional
