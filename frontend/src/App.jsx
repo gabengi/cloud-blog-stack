@@ -5,9 +5,10 @@ import QuillEditor from './components/QuillEditor';
 import { getBlogs, getBlogById, saveBlog, deleteBlog } from './services/blogService';
 import authService from './services/authService';
 import './App.css';
+import Delta from 'quill-delta'; // Import Delta
 
 // Define the default subtitle placeholder as a constant
-const DEFAULT_SUBTITLE_PLACEHOLDER = 'Your subtitle here...';
+const DEFAULT_SUBTITLE_PLACEHOLDER = 'Your subtitle here';
 
 function App() {
   const [currentBlogId, setCurrentBlogId] = useState(null);
@@ -70,18 +71,19 @@ function App() {
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside); // Fixed typo here
+      document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [authDropdownRef]);
 
   // Effect to explicitly enable/disable Quill editor when isLoggedIn changes
-  useEffect(() => {
-    if (quillEditorRef.current && quillEditorRef.current.getEditor()) {
-        const quillInstance = quillEditorRef.current.getEditor();
-        quillInstance.enable(isLoggedIn); // Enable if logged in, disable if not
-        console.log(`App.jsx: Quill editor enabled state set to: ${isLoggedIn}`);
-    }
-  }, [isLoggedIn]); // Only react to isLoggedIn changes
+  // useEffect(() => {
+  //   if (quillEditorRef.current && quillEditorRef.current.getEditor()) {
+  //       const quillInstance = quillEditorRef.current.getEditor();
+  //       // Enable if logged in AND the current user is the author, otherwise disable
+  //       quillInstance.enable(isLoggedIn && currentUser?.username === currentBlogAuthor);
+  //       console.log(`App.jsx: Quill editor enabled state set to: ${isLoggedIn && currentUser?.username === currentBlogAuthor}`);
+  //   }
+  // }, [isLoggedIn, currentUser, currentBlogAuthor]); // Only react to isLoggedIn, currentUser, currentBlogAuthor changes
 
   // Effect to manage the contentEditable div's innerText for the title
   useEffect(() => {
@@ -99,39 +101,85 @@ function App() {
     }
   }, [blogSubtitle, isSubtitleFocused]); // Depend on blogSubtitle and isSubtitleFocused
 
-
-  const loadBlog = useCallback(async (id) => {
+useEffect(() => {
+  // Case 1: Existing blog with content loaded
+  if (currentBlogId !== null && blogContent !== '' && blogDelta !== null) {
+    setIsEditorReady(true);
+    console.log(`App.jsx: Editor is now ready for blog ID: ${currentBlogId}`);
+  }
+  // Case 2: New blog (no currentBlogId)
+  else if (currentBlogId === null && blogDelta !== null) {
+    // For new blogs, we're ready as soon as we have a delta (even if it's just empty)
+    setIsEditorReady(true);
+    console.log(`App.jsx: Editor is now ready for a NEW blog.`);
+  }
+  // Case 3: Not ready (transitional states)
+  else {
     setIsEditorReady(false);
+    console.log(`App.jsx: Editor is NOT ready. currentBlogId: ${currentBlogId}, blogContent: ${blogContent.length > 0 ? 'HAS CONTENT' : 'EMPTY'}, blogDelta: ${blogDelta ? 'HAS DELTA' : 'NULL'}`);
+  }
+}, [currentBlogId, blogContent, blogDelta]);
+
+const loadBlog = useCallback(async (id) => {
+    setIsEditorReady(false); // Signal transition
     console.log(`loadBlog: Attempting to load blog with ID: ${id}`);
     const blog = await getBlogById(id);
-    if (blog) {
-      const contentSnippet = blog.content ? blog.content.substring(0, Math.min(blog.content.length, 50)) : 'No content';
-      console.log(`loadBlog: Blog loaded - Title: "${blog.title}", Subtitle: "${blog.subtitle || 'N/A'}", Author: "${blog.author}", Content snippet: "${contentSnippet}..."`);
-      setBlogTitle(blog.title);
-      setBlogSubtitle(blog.subtitle || DEFAULT_SUBTITLE_PLACEHOLDER); // Set subtitle here, use default if empty
-      setBlogContent(blog.content);
-      setBlogDelta(blog.delta);
-      setCurrentBlogAuthor(blog.author);
-      setBlogLastUpdated(blog.updatedAt || blog.createdAt); // Set the last updated date
-    } else {
-      console.log(`loadBlog: Blog with ID ${id} not found. Clearing editor.`);
-      setBlogTitle('');
-      setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Clear subtitle, set to default
-      setBlogContent('');
-      setBlogDelta(null);
-      setCurrentBlogAuthor('');
-      setBlogLastUpdated(null); // Clear the date
-    }
-    setCurrentBlogId(id);
-    setCurrentPage('editor'); // Always switch to editor view when loading a blog
-    setOpenStoryDropdownId(null); // Close any open story dropdown
-    setTimeout(() => {
-      setIsEditorReady(true);
-      console.log(`loadBlog: Editor ready for ID: ${id}`);
-    }, 50);
-  }, []);
 
-  const loadInitialBlogData = useCallback(async () => {
+    if (blog) {
+      console.log(`loadBlog: Blog loaded - Title: "${blog.title}", Subtitle: "${blog.subtitle || 'N/A'}", Author: "${blog.author}", Delta present: ${!!blog.delta}`);
+      console.log(`loadBlog: DEBUG - blog.delta TYPE BEFORE PARSE: ${typeof blog.delta}, VALUE (first 100 chars): "${typeof blog.delta === 'string' ? blog.delta.substring(0, Math.min(blog.delta.length, 100)) : JSON.stringify(blog.delta).substring(0, Math.min(JSON.stringify(blog.delta).length, 100))}"`);
+
+      // Set all states related to the blog content
+      setBlogTitle(blog.title);
+      setBlogSubtitle(blog.subtitle || DEFAULT_SUBTITLE_PLACEHOLDER);
+      setBlogContent(blog.content);
+
+      // Handle blog.delta: Parse if string, use as-is if object, default if null/undefined
+      let parsedDelta = null;
+      if (typeof blog.delta === 'string') {
+        try {
+          parsedDelta = JSON.parse(blog.delta);
+          // Ensure it's a Delta instance for consistency
+          if (!(parsedDelta instanceof Delta)) {
+              parsedDelta = new Delta(parsedDelta);
+          }
+        } catch (e) {
+          console.error("Error parsing blog.delta JSON string in loadBlog:", e);
+          parsedDelta = { ops: [{ insert: '\n' }] }; // Fallback to an empty Delta
+        }
+      } else if (blog.delta) {
+        parsedDelta = blog.delta; // It's already an object
+        // Ensure it's a Delta instance for consistency
+        if (!(parsedDelta instanceof Delta)) {
+            parsedDelta = new Delta(parsedDelta);
+        }
+      } else {
+        parsedDelta = { ops: [{ insert: '\n' }] }; // It's null or undefined
+      }
+      setBlogDelta(parsedDelta); // Set the parsed Delta
+
+      console.log(`loadBlog: DEBUG - blogDelta STATE TYPE AFTER PARSE: ${typeof parsedDelta}, VALUE (first 100 chars): "${JSON.stringify(parsedDelta).substring(0, Math.min(JSON.stringify(parsedDelta).length, 100))}"`);
+
+      setCurrentBlogAuthor(blog.author);
+      setBlogLastUpdated(blog.updatedAt || blog.createdAt);
+      setCurrentBlogId(id);
+      setCurrentPage('editor');
+      setOpenStoryDropdownId(null);
+    } else {
+      console.log(`loadBlog: Blog with ID ${id} not found. Preparing for a new blog.`);
+      setIsEditorReady(false);
+      setCurrentBlogId(null);
+      setBlogTitle('');
+      setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER);
+      setBlogContent('');
+      setBlogDelta({ ops: [{ insert: '\n' }] });
+      setCurrentBlogAuthor(currentUser ? currentUser.username : '');
+      setBlogLastUpdated(null);
+      setCurrentPage('editor');
+    }
+  }, [currentUser]);
+
+const loadInitialBlogData = useCallback(async () => {
     if (didInitialLoadRef.current) {
       console.log("loadInitialBlogData: Initial load already processed. Skipping.");
       return;
@@ -143,40 +191,66 @@ function App() {
       const blogs = await getBlogs();
       if (blogs.length > 0) {
         const firstBlog = blogs[0];
-        const contentSnippet = firstBlog.content ? firstBlog.content.substring(0, Math.min(firstBlog.content.length, 50)) : 'No content';
-        console.log(`loadInitialBlogData: Loading first blog (ID: ${firstBlog.id}) - Title: "${firstBlog.title}", Subtitle: "${firstBlog.subtitle || 'N/A'}", Author: "${firstBlog.author}", Content snippet: "${contentSnippet}...", Delta present: ${!!firstBlog.delta}`);
-        setCurrentBlogId(firstBlog.id);
+        console.log(`loadInitialBlogData: Loading first blog (ID: ${firstBlog.id}) - Title: "${firstBlog.title}", Delta present: ${!!firstBlog.delta}`);
+        console.log(`loadInitialBlogData: DEBUG - firstBlog.delta TYPE BEFORE PARSE: ${typeof firstBlog.delta}, VALUE (first 100 chars): "${typeof firstBlog.delta === 'string' ? firstBlog.delta.substring(0, Math.min(firstBlog.delta.length, 100)) : JSON.stringify(firstBlog.delta).substring(0, Math.min(JSON.stringify(firstBlog.delta).length, 100))}"`);
+
+        // Set all states related to the blog content
         setBlogTitle(firstBlog.title);
-        setBlogSubtitle(firstBlog.subtitle || DEFAULT_SUBTITLE_PLACEHOLDER); // Set subtitle here, use default if empty
+        setBlogSubtitle(firstBlog.subtitle || DEFAULT_SUBTITLE_PLACEHholder);
         setBlogContent(firstBlog.content);
-        setBlogDelta(firstBlog.delta);
+
+        // Handle firstBlog.delta: Parse if string, use as-is if object, default if null/undefined
+        let parsedFirstBlogDelta = null;
+        if (typeof firstBlog.delta === 'string') {
+          try {
+            parsedFirstBlogDelta = JSON.parse(firstBlog.delta);
+            // Ensure it's a Delta instance for consistency
+            if (!(parsedFirstBlogDelta instanceof Delta)) {
+                parsedFirstBlogDelta = new Delta(parsedFirstBlogDelta);
+            }
+          } catch (e) {
+            console.error("Error parsing firstBlog.delta JSON string in loadInitialBlogData:", e);
+            parsedFirstBlogDelta = { ops: [{ insert: '\n' }] }; // Fallback to an empty Delta
+          }
+        } else if (firstBlog.delta) {
+          parsedFirstBlogDelta = firstBlog.delta; // It's already an object
+          // Ensure it's a Delta instance for consistency
+          if (!(parsedFirstBlogDelta instanceof Delta)) {
+              parsedFirstBlogDelta = new Delta(parsedFirstBlogDelta);
+          }
+        } else {
+          parsedFirstBlogDelta = { ops: [{ insert: '\n' }] }; // It's null or undefined
+        }
+        setBlogDelta(parsedFirstBlogDelta); // Set the parsed Delta
+
+        console.log(`loadInitialBlogData: DEBUG - blogDelta STATE TYPE AFTER PARSE: ${typeof parsedFirstBlogDelta}, VALUE (first 100 chars): "${JSON.stringify(parsedFirstBlogDelta).substring(0, Math.min(JSON.stringify(parsedFirstBlogDelta).length, 100))}"`);
+
         setCurrentBlogAuthor(firstBlog.author);
-        setBlogLastUpdated(firstBlog.updatedAt || firstBlog.createdAt); // Set the last updated date
+        setBlogLastUpdated(firstBlog.updatedAt || firstBlog.createdAt);
+        setCurrentBlogId(firstBlog.id);
       } else {
-        console.log("loadInitialBlogData: No blogs found. Starting a new empty blog.");
+        console.log("loadInitialBlogData: No blogs found. Starting with a new empty blog.");
         setCurrentBlogId(null);
         setBlogTitle('');
-        setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Set default subtitle for new blog
+        setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER);
         setBlogContent('');
-        setBlogDelta(null);
-        setCurrentBlogAuthor('');
-        setBlogLastUpdated(null); // Clear the date
+        setBlogDelta({ ops: [{ insert: '\n' }] });
+        setCurrentBlogAuthor(currentUser ? currentUser.username : '');
+        setBlogLastUpdated(null);
       }
     } catch (error) {
-      console.error("Failed to load initial blog data:", error);
+      console.error("loadInitialBlogData: Failed to load initial blog data:", error);
+      setCurrentBlogId(null);
       setBlogTitle('');
-      setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Set default subtitle on error as well
+      setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER);
       setBlogContent('');
-      setBlogDelta(null);
-      setCurrentBlogAuthor('');
-      setBlogLastUpdated(null); // Clear the date
+      setBlogDelta({ ops: [{ insert: '\n' }] });
+      setCurrentBlogAuthor(currentUser ? currentUser.username : '');
+      setBlogLastUpdated(null);
     } finally {
-      setTimeout(() => {
-        setIsEditorReady(true);
-        console.log("loadInitialBlogData: Editor ready state set to true in finally block.");
-      }, 50);
+      setIsEditorReady(true);
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     loadInitialBlogData();
@@ -205,39 +279,38 @@ function App() {
 
   const handleNewBlog = useCallback(() => {
     if (!isLoggedIn) {
-      console.log("Please log in to create a new blog."); // Replaced alert
+      console.log("Please log in to create a new blog.");
       return;
     }
+    // Set isEditorReady to false to trigger unmount/remount
     setIsEditorReady(false);
     setCurrentBlogId(null);
     setBlogTitle('');
-    setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Set default subtitle for new blog
+    setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER);
     setBlogContent('');
-    setBlogDelta(null);
+    setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
     setCurrentBlogAuthor(currentUser ? currentUser.username : '');
-    setBlogLastUpdated(null); // Clear the date for a new blog
-    setCurrentPage('editor'); // Switch to editor view
-    setTimeout(() => {
-      setIsEditorReady(true);
-      console.log("handleNewBlog: Editor ready for new blog.");
-    }, 50);
+    setBlogLastUpdated(null);
+    setCurrentPage('editor');
+    // isEditorReady will be set by the new useEffect
+    console.log("handleNewBlog: Editor preparing for new blog.");
   }, [isLoggedIn, currentUser]);
 
   const handleSaveBlog = useCallback(async () => {
     if (!isLoggedIn) {
-      console.log("Please log in to publish or update a blog."); // Replaced alert
+      console.log("Please log in to publish or update a blog.");
       return;
     }
 
     if (!blogTitle.trim()) {
-      console.log('Blog title cannot be empty.'); // Replaced alert
+      console.log('Blog title cannot be empty.');
       return;
     }
     // Check if blog content is empty (Quill's initial state is often just a newline)
     const isContentEmpty = !blogContent.trim() || (blogDelta && blogDelta.ops && blogDelta.ops.length === 1 && blogDelta.ops[0].insert === '\n');
 
     if (isContentEmpty) {
-        console.log('Blog content cannot be empty.'); // Replaced alert
+        console.log('Blog content cannot be empty.');
         return;
     }
 
@@ -256,17 +329,18 @@ function App() {
       const savedBlog = await saveBlog(blogData);
       if (savedBlog) {
         console.log("Blog saved/updated:", savedBlog);
-        console.log(currentBlogId ? "Blog updated successfully!" : "Blog published successfully!"); // Replaced alert
+        console.log(currentBlogId ? "Blog updated successfully!" : "Blog published successfully!");
         setCurrentBlogId(savedBlog.id);
         setCurrentBlogAuthor(savedBlog.author);
         setBlogLastUpdated(savedBlog.updatedAt || savedBlog.createdAt); // Update the date after saving
+        // No need to touch isEditorReady here, it's managed by its effect
       } else {
         console.error("Failed to save/update blog.");
-        console.log("Failed to save/update blog."); // Replaced alert
+        console.log("Failed to save/update blog.");
       }
     } catch (error) {
       console.error("Error saving/updating blog:", error);
-      console.log(`Error saving/updating blog: ${error.message}`); // Replaced alert
+      console.log(`Error saving/updating blog: ${error.message}`);
     }
   }, [blogTitle, blogSubtitle, blogContent, blogDelta, currentBlogId, isLoggedIn, currentUser]);
 
@@ -303,6 +377,18 @@ function App() {
   const handleGoHome = useCallback(async () => {
     console.log("Loading all blogs for homepage...");
     try {
+      // Before loading new data, set editor to not ready, and clear current blog data
+      // This ensures that if the user clicks "Home" then immediately an article,
+      // the editor is properly reset before loading new content.
+      setIsEditorReady(false);
+      setCurrentBlogId(null);
+      setBlogTitle('');
+      setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER);
+      setBlogContent('');
+      setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
+      setCurrentBlogAuthor('');
+      setBlogLastUpdated(null);
+
       const allBlogsData = await getBlogs();
       // Sort by updatedAt or createdAt in descending order
       const sortedBlogs = allBlogsData.sort((a, b) => {
@@ -340,12 +426,12 @@ function App() {
           if (idToDelete === currentBlogId) {
             setCurrentBlogId(null);
             setBlogTitle('');
-            setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Set default subtitle after deleting current blog
+            setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Clear subtitle
             setBlogContent('');
-            setBlogDelta(null);
+            setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
             setCurrentBlogAuthor('');
             setBlogLastUpdated(null);
-            setIsEditorReady(false); // Reset editor state
+            // isEditorReady will be managed by its dedicated effect
           }
           // Refresh lists based on current page
           if (currentPage === 'stories') {
@@ -368,12 +454,19 @@ function App() {
 
 
   const handleLoadNextOrPrevious = useCallback(async (direction) => {
-    setIsEditorReady(false);
+    setIsEditorReady(false); // Clear editor state during transition
     console.log(`handleLoadNextOrPrevious: Loading ${direction} blog...`);
     const blogs = await getBlogs();
     if (!blogs || blogs.length === 0) {
-      console.warn("handleLoadNextOrPrevious: No blogs available for navigation.");
-      setTimeout(() => { setIsEditorReady(true); }, 50);
+      console.warn("handleLoadNextOrPrevious: No blogs available for navigation. Switching to new blog mode.");
+      setCurrentBlogId(null);
+      setBlogTitle('');
+      setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Clear subtitle
+      setBlogContent('');
+      setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
+      setCurrentBlogAuthor('');
+      setBlogLastUpdated(null); // Clear the date
+      // isEditorReady will be set by the new useEffect
       return;
     }
 
@@ -389,17 +482,17 @@ function App() {
     const nextBlog = blogs[nextIndex];
     if (nextBlog) {
       console.log(`handleLoadNextOrPrevious: Switching to blog ID: ${nextBlog.id}`);
-      await loadBlog(nextBlog.id);
+      await loadBlog(nextBlog.id); // This will eventually set isEditorReady via the effect
     } else {
         console.warn("handleLoadNextOrPrevious: Could not find next/previous blog. Switching to new blog mode.");
         setCurrentBlogId(null);
         setBlogTitle('');
-        setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Set default subtitle when navigating to a new blog
+        setBlogSubtitle(DEFAULT_SUBTITLE_PLACEHOLDER); // Clear subtitle
         setBlogContent('');
-        setBlogDelta(null);
+        setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
         setCurrentBlogAuthor('');
         setBlogLastUpdated(null); // Clear the date
-        setTimeout(() => { setIsEditorReady(true); }, 50);
+        // isEditorReady will be set by the new useEffect
     }
   }, [currentBlogId, loadBlog]);
 
@@ -417,11 +510,11 @@ function App() {
       setAuthUsername('');
       setAuthPassword('');
       setShowAuthForm(false); // Hide form on successful auth
-      console.log(data.message); // Replaced alert
+      console.log(data.message);
       await loadInitialBlogData();
     } catch (error) {
       console.error("Auth error:", error);
-      console.log(error.message); // Replaced alert
+      console.log(error.message);
     }
   };
 
@@ -430,7 +523,7 @@ function App() {
     setIsLoggedIn(false);
     setCurrentUser(null);
     setShowAuthDropdown(false); // Close dropdown on logout
-    console.log("You have been logged out."); // Replaced alert
+    console.log("You have been logged out.");
     loadInitialBlogData();
   }, [loadInitialBlogData]);
 
@@ -540,7 +633,8 @@ function App() {
           <div
             id="global-quill-toolbar"
             className="quill-toolbar-container"
-            style={{ display: isLoggedIn ? 'block' : 'none' }} // Control visibility here based on login state
+            // Use display: none when not editable to completely hide it
+            style={{ display: (isLoggedIn && currentUser?.username === currentBlogAuthor) ? 'block' : 'none' }}
           >
             {/* Quill will automatically populate this div with its toolbar items */}
             {/* Do NOT add any child elements inside this div yourself */}
@@ -550,7 +644,7 @@ function App() {
             <div
               ref={titleRef}
               className="blog-title-editable"
-              contentEditable={isLoggedIn}
+              contentEditable={isLoggedIn && currentUser?.username === currentBlogAuthor}
               data-placeholder="Title"
               onInput={handleTitleChange}
               onFocus={() => setIsTitleFocused(true)} // Set focused state to true
@@ -561,13 +655,13 @@ function App() {
             <div
               ref={subtitleRef}
               className="blog-subtitle-editable" // New class for subtitle
-              contentEditable={isLoggedIn}
+              contentEditable={isLoggedIn && currentUser?.username === currentBlogAuthor}
               data-placeholder={DEFAULT_SUBTITLE_PLACEHOLDER} // Placeholder for subtitle
               onInput={handleSubtitleChange}
               onFocus={() => setIsSubtitleFocused(true)} // Set focused state to true
               onBlur={() => setIsSubtitleFocused(false)}   // Set focused state to false
             />
-            {currentBlogAuthor && <p className="blog-author">By: {currentBlogAuthor}</p>}
+            {currentBlogAuthor && currentPage !== 'editor' && <p className="blog-author">By: {currentBlogAuthor}</p>}
             {blogLastUpdated && (
               <p className="blog-date-stamp">
                 Last updated: {new Date(blogLastUpdated).toLocaleDateString()}
@@ -582,7 +676,8 @@ function App() {
                 initialDelta={blogDelta}
                 onContentChange={handleContentChange}
                 toolbarId="global-quill-toolbar" // Pass the ID to QuillEditor
-                readOnly={!isLoggedIn} // Pass readOnly prop for initial setup and internal QuillEditor use
+                readOnly={!isLoggedIn || currentUser?.username !== currentBlogAuthor}
+                placeholder={isLoggedIn && currentUser?.username === currentBlogAuthor ? 'Start writing your blog post here...' : ''}
               />
             )}
           </main>
@@ -591,21 +686,21 @@ function App() {
 
       {currentPage === 'stories' && (
         <div className="stories-page-container">
-          <h2>My Stories</h2> {/* Changed heading to My Stories */}
+          <h2>My Stories</h2>
           {isLoggedIn && userStories.length > 0 ? (
-            <ul className="stories-list" ref={storiesListRef}> {/* Attach ref here */}
+            <ul className="stories-list" ref={storiesListRef}>
               {userStories.map(blog => (
                 <li key={blog.id} className="story-item">
-                  <div className="story-info"> {/* New wrapper for title and date */}
+                  <div className="story-info">
                     <span className="story-title" onClick={() => loadBlog(blog.id)}>
                       {blog.title || 'Untitled Blog'}
                     </span>
-                    {blog.subtitle && ( // Conditionally display subtitle
+                    {blog.subtitle && (
                       <span className="story-subtitle-small">
                         {blog.subtitle}
                       </span>
                     )}
-                    <span className="story-date-small"> {/* New class for smaller date */}
+                    <span className="story-date-small">
                       {new Date(blog.updatedAt || blog.createdAt).toLocaleDateString()}
                     </span>
                   </div>
@@ -613,21 +708,21 @@ function App() {
                     <button
                       className="story-dropdown-toggle"
                       onClick={(e) => {
-                        e.stopPropagation(); // Prevent loadBlog from firing
+                        e.stopPropagation();
                         setOpenStoryDropdownId(openStoryDropdownId === blog.id ? null : blog.id);
                       }}
                     >
-                      &#x25BC; {/* Down arrow character */}
+                      &#x25BC;
                     </button>
                     {openStoryDropdownId === blog.id && (
                       <div className="story-dropdown-menu">
                         <button onClick={() => {
                           loadBlog(blog.id);
-                          setOpenStoryDropdownId(null); // Close dropdown after action
+                          setOpenStoryDropdownId(null);
                         }}>Edit</button>
                         <button onClick={() => {
                           handleDeleteBlog(blog.id);
-                          setOpenStoryDropdownId(null); // Close dropdown after action
+                          setOpenStoryDropdownId(null);
                         }}>Delete</button>
                       </div>
                     )}
@@ -640,7 +735,6 @@ function App() {
               {isLoggedIn ? "You haven't written any stories yet." : "Please log in to see your stories."}
             </p>
           )}
-          {/* Removed "Back to Editor" button */}
         </div>
       )}
 
@@ -649,11 +743,10 @@ function App() {
           <h2>All Articles</h2>
           {allBlogs.length > 0 ? (
             <ul className="articles-list">
-              {/* Removed list-header as columns are no longer used */}
               {allBlogs.map(blog => (
                 <li key={blog.id} className="article-item" onClick={() => loadBlog(blog.id)}>
                   <span className="article-title-main">{blog.title || 'Untitled Blog'}</span>
-                  {blog.subtitle && ( // Conditionally display subtitle on homepage
+                  {blog.subtitle && (
                     <span className="article-subtitle-main">
                       {blog.subtitle}
                     </span>
@@ -668,7 +761,6 @@ function App() {
           ) : (
             <p className="no-articles-message">No articles found. Start writing one!</p>
           )}
-          {/* Removed "Back to Editor" button */}
         </div>
       )}
     </div>

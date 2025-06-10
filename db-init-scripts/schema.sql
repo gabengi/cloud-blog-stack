@@ -27,6 +27,10 @@ CREATE TABLE articles (
 DELETE FROM articles;
 DELETE FROM users;
 
-INSERT INTO articles (title, subtitle, author, html_content, delta_content) VALUES -- NEW: Added subtitle
-('Welcome to Your Blog', 'Your journey into web development.', 'Admin', '<p>This is your very first blog post!</p><p>You can edit or delete this, or create new posts.</p>', '[{"insert":"This is your very first blog post!\\nYou can edit or delete this, or create new posts.\\n"}]'),
-('Exploring New Features', 'Dive deep into modern web technologies.', 'Admin', '<p>Stay tuned for more updates and exciting new features!</p>', '[{"insert":"Stay tuned for more updates and exciting new features!\\n"}]');
+INSERT INTO articles (title, subtitle, author, html_content, delta_content) VALUES
+-- Corrected delta_content for the first article: Each line ending with \n or having a separate {"insert":"\n"}
+('Welcome to Your Blog', 'Your journey into web development.', 'Admin', '<p>This is your very first blog post!</p><p>You can edit or delete this, or create new posts.</p>',
+  '[{"insert":"This is your very first blog post!\n"}, {"insert":"You can edit or delete this, or create new posts.\n"}]'),
+-- Corrected delta_content for the second article:
+('Exploring New Features', 'Dive deep into modern web technologies.', 'Admin', '<p>Stay tuned for more updates and exciting new features!</p>',
+  '[{"insert":"Stay tuned for more updates and exciting new features!\n"}]');
