@@ -46,6 +46,9 @@ function App() {
   const [isTitleFocused, setIsTitleFocused] = useState(false);
   const [isSubtitleFocused, setIsSubtitleFocused] = useState(false); // New state for subtitle focus
 
+  // NEW STATE: To control edit mode for current blog
+  const [isEditing, setIsEditing] = useState(false);
+
 
   useEffect(() => {
     const user = authService.getCurrentUser();
@@ -74,16 +77,6 @@ function App() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [authDropdownRef]);
-
-  // Effect to explicitly enable/disable Quill editor when isLoggedIn changes
-  // useEffect(() => {
-  //   if (quillEditorRef.current && quillEditorRef.current.getEditor()) {
-  //       const quillInstance = quillEditorRef.current.getEditor();
-  //       // Enable if logged in AND the current user is the author, otherwise disable
-  //       quillInstance.enable(isLoggedIn && currentUser?.username === currentBlogAuthor);
-  //       console.log(`App.jsx: Quill editor enabled state set to: ${isLoggedIn && currentUser?.username === currentBlogAuthor}`);
-  //   }
-  // }, [isLoggedIn, currentUser, currentBlogAuthor]); // Only react to isLoggedIn, currentUser, currentBlogAuthor changes
 
   // Effect to manage the contentEditable div's innerText for the title
   useEffect(() => {
@@ -122,6 +115,7 @@ useEffect(() => {
 
 const loadBlog = useCallback(async (id) => {
     setIsEditorReady(false); // Signal transition
+    setIsEditing(false); // When loading a blog, default to view mode
     console.log(`loadBlog: Attempting to load blog with ID: ${id}`);
     const blog = await getBlogById(id);
 
@@ -176,6 +170,7 @@ const loadBlog = useCallback(async (id) => {
       setCurrentBlogAuthor(currentUser ? currentUser.username : '');
       setBlogLastUpdated(null);
       setCurrentPage('editor');
+      setIsEditing(true); // If no blog found, we're effectively starting a new one, so enable editing
     }
   }, [currentUser]);
 
@@ -196,7 +191,7 @@ const loadInitialBlogData = useCallback(async () => {
 
         // Set all states related to the blog content
         setBlogTitle(firstBlog.title);
-        setBlogSubtitle(firstBlog.subtitle || DEFAULT_SUBTITLE_PLACEHholder);
+        setBlogSubtitle(firstBlog.subtitle || DEFAULT_SUBTITLE_PLACEHOLDER);
         setBlogContent(firstBlog.content);
 
         // Handle firstBlog.delta: Parse if string, use as-is if object, default if null/undefined
@@ -228,6 +223,7 @@ const loadInitialBlogData = useCallback(async () => {
         setCurrentBlogAuthor(firstBlog.author);
         setBlogLastUpdated(firstBlog.updatedAt || firstBlog.createdAt);
         setCurrentBlogId(firstBlog.id);
+        setIsEditing(false); // Initial load: view mode
       } else {
         console.log("loadInitialBlogData: No blogs found. Starting with a new empty blog.");
         setCurrentBlogId(null);
@@ -237,6 +233,7 @@ const loadInitialBlogData = useCallback(async () => {
         setBlogDelta({ ops: [{ insert: '\n' }] });
         setCurrentBlogAuthor(currentUser ? currentUser.username : '');
         setBlogLastUpdated(null);
+        setIsEditing(true); // If no blogs, prepare for new blog, so enable editing
       }
     } catch (error) {
       console.error("loadInitialBlogData: Failed to load initial blog data:", error);
@@ -247,6 +244,7 @@ const loadInitialBlogData = useCallback(async () => {
       setBlogDelta({ ops: [{ insert: '\n' }] });
       setCurrentBlogAuthor(currentUser ? currentUser.username : '');
       setBlogLastUpdated(null);
+      setIsEditing(true); // If error, treat as new blog, enable editing
     } finally {
       setIsEditorReady(true);
     }
@@ -292,7 +290,7 @@ const loadInitialBlogData = useCallback(async () => {
     setCurrentBlogAuthor(currentUser ? currentUser.username : '');
     setBlogLastUpdated(null);
     setCurrentPage('editor');
-    // isEditorReady will be set by the new useEffect
+    setIsEditing(true); // New blog, so enable editing immediately
     console.log("handleNewBlog: Editor preparing for new blog.");
   }, [isLoggedIn, currentUser]);
 
@@ -333,7 +331,7 @@ const loadInitialBlogData = useCallback(async () => {
         setCurrentBlogId(savedBlog.id);
         setCurrentBlogAuthor(savedBlog.author);
         setBlogLastUpdated(savedBlog.updatedAt || savedBlog.createdAt); // Update the date after saving
-        // No need to touch isEditorReady here, it's managed by its effect
+        setIsEditing(false); // After saving, switch back to view mode
       } else {
         console.error("Failed to save/update blog.");
         console.log("Failed to save/update blog.");
@@ -367,6 +365,7 @@ const loadInitialBlogData = useCallback(async () => {
       setCurrentPage('stories'); // Switch to stories view
       setShowAuthDropdown(false); // Close dropdown
       setOpenStoryDropdownId(null); // Close any open story dropdown
+      setIsEditing(false); // When navigating to stories, assume view mode
     } catch (error) {
       console.error("Failed to load user stories:", error);
       setUserStories([]);
@@ -388,6 +387,7 @@ const loadInitialBlogData = useCallback(async () => {
       setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
       setCurrentBlogAuthor('');
       setBlogLastUpdated(null);
+      setIsEditing(false); // When navigating to home, assume view mode
 
       const allBlogsData = await getBlogs();
       // Sort by updatedAt or createdAt in descending order
@@ -431,6 +431,7 @@ const loadInitialBlogData = useCallback(async () => {
             setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
             setCurrentBlogAuthor('');
             setBlogLastUpdated(null);
+            setIsEditing(true); // After deleting the current blog, start a new one (edit mode)
             // isEditorReady will be managed by its dedicated effect
           }
           // Refresh lists based on current page
@@ -455,6 +456,7 @@ const loadInitialBlogData = useCallback(async () => {
 
   const handleLoadNextOrPrevious = useCallback(async (direction) => {
     setIsEditorReady(false); // Clear editor state during transition
+    setIsEditing(false); // When navigating, switch to view mode
     console.log(`handleLoadNextOrPrevious: Loading ${direction} blog...`);
     const blogs = await getBlogs();
     if (!blogs || blogs.length === 0) {
@@ -466,7 +468,7 @@ const loadInitialBlogData = useCallback(async () => {
       setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
       setCurrentBlogAuthor('');
       setBlogLastUpdated(null); // Clear the date
-      // isEditorReady will be set by the new useEffect
+      setIsEditing(true); // If no blogs, prepare for new blog, so enable editing
       return;
     }
 
@@ -492,7 +494,7 @@ const loadInitialBlogData = useCallback(async () => {
         setBlogDelta({ ops: [{ insert: '\n' }] }); // Set to an empty Quill Delta
         setCurrentBlogAuthor('');
         setBlogLastUpdated(null); // Clear the date
-        // isEditorReady will be set by the new useEffect
+        setIsEditing(true); // If no blogs, prepare for new blog, so enable editing
     }
   }, [currentBlogId, loadBlog]);
 
@@ -527,10 +529,15 @@ const loadInitialBlogData = useCallback(async () => {
     loadInitialBlogData();
   }, [loadInitialBlogData]);
 
+  // Handler to toggle editing mode
+  const handleToggleEdit = useCallback(() => {
+    setIsEditing(prev => !prev);
+  }, []);
 
   // Determine if the save/publish button should be visible
   const canSave = isLoggedIn &&
                   currentPage === 'editor' && // Only show on editor page
+                  isEditing && // Only allow saving when in editing mode
                   (
                     (blogTitle && blogTitle.trim() !== '') || // Title has content
                     (blogSubtitle && blogSubtitle.trim() !== '' && blogSubtitle.trim() !== DEFAULT_SUBTITLE_PLACEHOLDER) || // Subtitle has content (and isn't just the default placeholder)
@@ -543,7 +550,12 @@ const loadInitialBlogData = useCallback(async () => {
                   );
 
 
-  console.log(`App Render - isEditorReady: ${isEditorReady} currentBlogId: ${currentBlogId} User: ${currentUser ? currentUser.username : 'Guest'} LoggedIn: ${isLoggedIn} CurrentPage: ${currentPage}`);
+  console.log(`App Render - isEditorReady: ${isEditorReady} currentBlogId: ${currentBlogId} User: ${currentUser ? currentUser.username : 'Guest'} LoggedIn: ${isLoggedIn} CurrentPage: ${currentPage} isEditing: ${isEditing}`);
+
+  // Determine if the current user is the author of the displayed blog
+  const isCurrentUserAuthor = isLoggedIn && currentUser && currentUser.username === currentBlogAuthor;
+  const showEditButton = isLoggedIn && currentPage === 'editor' && !isEditing && currentBlogId && isCurrentUserAuthor;
+
 
   return (
     <div className="App">
@@ -555,12 +567,18 @@ const loadInitialBlogData = useCallback(async () => {
           {isLoggedIn && (
             <>
               {/* Publish/Update Button - now conditionally rendered based on canSave */}
-              {canSave && ( // Only show if canSave is true
+              {canSave && ( // Only show if canSave is true and in editing mode
                 <button className="write-button save-button" onClick={handleSaveBlog}>
                   {currentBlogId ? 'Update' : 'Publish'}
                 </button>
               )}
-              {/* Write New Blog Button */}
+              {/* Edit Button */}
+              {showEditButton && (
+                <button className="write-button edit-button" onClick={handleToggleEdit}>
+                  Edit
+                </button>
+              )}
+              {/* Write New Blog Button - Always available if logged in */}
               <button className="write-button" onClick={handleNewBlog}>
                 Write
               </button>
@@ -634,7 +652,7 @@ const loadInitialBlogData = useCallback(async () => {
             id="global-quill-toolbar"
             className="quill-toolbar-container"
             // Use display: none when not editable to completely hide it
-            style={{ display: (isLoggedIn && currentUser?.username === currentBlogAuthor) ? 'block' : 'none' }}
+            style={{ display: (isLoggedIn && currentUser?.username === currentBlogAuthor && isEditing) ? 'block' : 'none' }}
           >
             {/* Quill will automatically populate this div with its toolbar items */}
             {/* Do NOT add any child elements inside this div yourself */}
@@ -644,7 +662,7 @@ const loadInitialBlogData = useCallback(async () => {
             <div
               ref={titleRef}
               className="blog-title-editable"
-              contentEditable={isLoggedIn && currentUser?.username === currentBlogAuthor}
+              contentEditable={isLoggedIn && currentUser?.username === currentBlogAuthor && isEditing} /* Only editable when isEditing is true */
               data-placeholder="Title"
               onInput={handleTitleChange}
               onFocus={() => setIsTitleFocused(true)} // Set focused state to true
@@ -655,7 +673,7 @@ const loadInitialBlogData = useCallback(async () => {
             <div
               ref={subtitleRef}
               className="blog-subtitle-editable" // New class for subtitle
-              contentEditable={isLoggedIn && currentUser?.username === currentBlogAuthor}
+              contentEditable={isLoggedIn && currentUser?.username === currentBlogAuthor && isEditing} /* Only editable when isEditing is true */
               data-placeholder={DEFAULT_SUBTITLE_PLACEHOLDER} // Placeholder for subtitle
               onInput={handleSubtitleChange}
               onFocus={() => setIsSubtitleFocused(true)} // Set focused state to true
@@ -676,8 +694,8 @@ const loadInitialBlogData = useCallback(async () => {
                 initialDelta={blogDelta}
                 onContentChange={handleContentChange}
                 toolbarId="global-quill-toolbar" // Pass the ID to QuillEditor
-                readOnly={!isLoggedIn || currentUser?.username !== currentBlogAuthor}
-                placeholder={isLoggedIn && currentUser?.username === currentBlogAuthor ? 'Start writing your blog post here...' : ''}
+                readOnly={!isLoggedIn || currentUser?.username !== currentBlogAuthor || !isEditing} // ReadOnly when not editing
+                placeholder={isLoggedIn && currentUser?.username === currentBlogAuthor && isEditing ? 'Start writing your blog post here...' : ''}
               />
             )}
           </main>
