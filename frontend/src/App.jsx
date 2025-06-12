@@ -736,6 +736,7 @@ const loadInitialBlogData = useCallback(async () => {
                       <div className="story-dropdown-menu">
                         <button onClick={() => {
                           loadBlog(blog.id);
+                          setIsEditing(true);
                           setOpenStoryDropdownId(null);
                         }}>Edit</button>
                         <button onClick={() => {
